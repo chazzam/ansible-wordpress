@@ -1,0 +1,22 @@
+---
+# tasks file for mheap.php
+# PHP (auto installs apache2, so remove it)
+- name: Add ondrej PHP PPA
+  apt_repository: repo='ppa:ondrej/php'
+
+- name: install php
+  apt:
+    name: "{{item}}"
+    state: installed
+    update_cache: yes
+    cache_valid_time: 3600
+  with_items:
+    - php
+    - php-fpm
+    - php-mysql
+    - php-xml
+
+- name: remove apache2
+  apt: name=apache2 state=removed
+
+...

@@ -1,0 +1,31 @@
+---
+# tasks file for mheap.nginx
+# nginx
+- name: install nginx
+  apt:
+    name: nginx
+    state: installed
+    update_cache: yes
+    cache_valid_time: 3600
+
+# Start nginx
+- name: start nginx
+  service: name=nginx state=started
+
+# config nginx
+- name: write nginx config
+  template: src=default dest=/etc/nginx/sites-available/default
+  notify: restart nginx
+
+- name: have nginx ssl files dir
+  file:
+    dest: /etc/nginx/ssl
+    state: directory
+
+- name: write dhparams
+  command: openssl dhparam -dsaparam -out /etc/nginx/ssl/dhparams.pem 4096
+  args:
+    creates: /etc/nginx/ssl/dhparams.pem
+  notify: restart nginx
+
+...

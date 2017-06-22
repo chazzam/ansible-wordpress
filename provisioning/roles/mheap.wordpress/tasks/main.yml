@@ -1,0 +1,99 @@
+---
+# tasks file for mheap.wordpress
+# Wordpress. Uses wordpress_version from top of file for version, currently 4.8
+- name: require wordpress_version
+  fail:
+    msg: "Require 'wordpress_version', download one from https://wordpress.org/download/release-archive/"
+  when: wordpress_version is undefined
+
+- name: check if wordpress installed
+  stat:
+    path: "/var/www/{{wp_domain}}/wp-settings.php"
+    follow: yes
+  #~ ignore_errors: true
+  register: wp_install
+
+- name: copy in wordpress to /tmp
+  copy:
+    src: "wordpress-{{wordpress_version}}.tar.gz"
+    dest: /tmp/wordpress.tgz
+  when: not (wp_install.stat.isreg is defined and wp_install.stat.isreg)
+  register: wordpress_archive
+  ignore_errors: true
+
+# If the wordpress archive isn't available for our version, just download it...
+- block:
+  - name: Download Wordpress checksum
+    uri:
+      url: "https://wordpress.org/wordpress-{{wordpress_version}}.tar.gz.sha1"
+      return_content: true
+    register: wp_checksum
+  - name: Download wordpress archive
+    get_url:
+      url: "https://wordpress.org/wordpress-{{wordpress_version}}.tar.gz"
+      dest: /tmp/wordpress.tgz
+      checksum: "sha1:{{wp_checksum.content}}"
+  when: wordpress_archive|failed
+
+- block:
+  - name: extract wordpress
+    unarchive:
+      src: /tmp/wordpress.tgz
+      dest: /tmp
+      copy: no
+
+  - name: create html_root
+    file:
+      dest: "/var/www/{{wp_domain}}"
+      state: directory
+      group: www-data
+      owner: www-data
+      mode: u=rwX,g=rX,o=rX
+
+  - name: Copy Wordpress (copy module sucks)
+    command: cp -a /tmp/wordpress/. "/var/www/{{wp_domain}}/"
+  when: not (wp_install.stat.isreg is defined and wp_install.stat.isreg)
+
+# wordpress mysql setup
+- name: create wordpress db
+  mysql_db: name="{{database_name}}" state=present
+
+- name: wordpress db user
+  mysql_user:
+    name: "{{database_user}}"
+    host: localhost
+    password: "{{database_password}}"
+    priv: "{{database_name}}.*:ALL"
+
+# Wordress config
+- name: create wp-config
+  template:
+    src: wp-config.php
+    dest: "/var/www/{{wp_domain}}/wp-config.php"
+
+# Add wordpress db backup
+- name: check db contents
+  command: mysql -u root "{{database_name}}" -e "SELECT ID FROM {{database_name}}.wp_users LIMIT 1;"
+  register: db_exists
+  ignore_errors: true
+  changed_when: false
+
+- block:
+  - name: copy in wordpress db
+    template:
+      src: wp-database.sql
+      dest: /tmp/wp-database.sql
+
+  - name: import wordpress db
+    mysql_db: target=/tmp/wp-database.sql state=import name="{{database_name}}"
+  when: db_exists.rc > 0
+
+# cleanup
+- name: remove wordpress.tgz
+  file: state=absent path=/tmp/wordpress.tgz
+
+- name: remove wordpress folder
+  file: state=absent path=/tmp/wordpress/
+
+- name: remove wordpress db config
+  file: state=absent path=/tmp/wp-database.sql

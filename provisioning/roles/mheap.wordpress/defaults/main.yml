@@ -1,0 +1,13 @@
+---
+# defaults file for mheap.wordpress
+wordpress_version: 4.8
+database_name: wordpress_dev
+database_user: wordpress_dev
+database_password: bananasfosterdev
+wp_domain: dev.example.com
+wp_sitename: Biggins
+initial_post_title: Hey Howdy Hey
+initial_post_content: >
+  This is an example post.
+  Change me to say something interesting.
+

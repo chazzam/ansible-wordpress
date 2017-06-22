@@ -1,0 +1,49 @@
+---
+# tasks file for mheap.mysql
+# MySQL
+- name: install mysql
+  apt:
+    name: "{{item}}"
+    state: installed
+    update_cache: yes
+    cache_valid_time: 3600
+  with_items:
+    - mysql-server-5.6
+    - python-mysqldb
+
+  # Start securing mysql
+- name: remove anonymous mysql users
+  mysql_user: name="" state=absent
+
+- name: remove test mysql db
+  mysql_db: name=test state=absent
+
+# Update mysql root passwords
+- name: "generate a new root password for mysql"
+  command: openssl rand -hex 7
+  args:
+    creates: /root/.my.cnf
+  register: mysql_new_root_pass
+
+- name: update mysql root pass
+  mysql_user: name=root host="{{item}}" password="{{mysql_new_root_pass.stdout}}"
+  when: mysql_new_root_pass.changed
+  with_items:
+    - "{{ansible_hostname}}"
+    - 127.0.0.1
+    - ::1
+    - localhost
+
+- name: create my.cnf
+  template: src=my.cnf dest=/root/.my.cnf
+  when: mysql_new_root_pass.changed
+
+# Let us know the new pass
+- name: print new mysql root pass
+  debug: msg="New mysql root pass is {{mysql_new_root_pass.stdout}}"
+  when: mysql_new_root_pass.changed
+
+- debug: msg="No change to mysql root pass"
+  when: not mysql_new_root_pass.changed
+
+...

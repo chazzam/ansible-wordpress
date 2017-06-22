@@ -1,0 +1,152 @@
+---
+- hosts: all
+  vars:
+    wordpress_version: 4.8
+  become: true
+  force_handlers: true
+  tasks:
+    - name: Make sure we can connect
+      ping:
+
+    # Install any required packages
+    #~ - name: Install required tools
+      #~ apt: name={{item}} state=installed
+      #~ with_items:
+        #~ - unzip
+
+    # PHP (auto installs apache2, so remove it)
+    - name: Add ondrej PHP PPA
+      apt_repository: repo='ppa:ondrej/php'
+    - name: update apt cache
+      apt: update_cache=yes cache_valid_time=3600
+    - name: install php
+      apt: name="{{item}}" state=installed
+      with_items:
+        - php
+        - php-fpm
+        - php-mysql
+        - php-xml
+    - name: remove apache2
+      apt: name=apache2 state=removed
+
+    # MySQL
+    - name: install mysql
+      apt: name="{{item}}" state=installed
+      with_items:
+        - mysql-server-5.6
+        - python-mysqldb
+      # Start securing mysql
+    - name: remove anonymous mysql users
+      mysql_user: name="" state=absent
+    - name: remove test mysql db
+      mysql_db: name=test state=absent
+
+      # Update mysql root passwords
+    - name: make new root mysql pass
+      command: openssl rand -hex 7 creates=/root/.my.cnf
+      register: mysql_new_root_pass
+    - name: update mysql root pass
+      mysql_user: name=root host="{{item}}" password="{{mysql_new_root_pass.stdout}}"
+      when: mysql_new_root_pass.changed
+      with_items:
+        - "{{ansible_hostname}}"
+        - 127.0.0.1
+        - ::1
+        - localhost
+    - name: create my.cnf
+      template: src=templates/mysql/my.cnf dest=/root/.my.cnf
+      when: mysql_new_root_pass.changed
+      # Let us know the new pass
+    - name: print new mysql root pass
+      debug: msg="New mysql root pass is {{mysql_new_root_pass.stdout}}"
+      when: mysql_new_root_pass.changed
+    - debug: msg="No change to mysql root pass"
+      when: not mysql_new_root_pass.changed
+
+    # nginx
+    - name: install nginx
+      apt: name=nginx state=installed
+      # Start nginx
+    - name: start nginx
+      service: name=nginx state=started
+      # config nginx
+    - name: write nginx config
+      template: src=templates/nginx/default dest=/etc/nginx/sites-available/default
+      notify: restart nginx
+
+    # Wordpress. Uses wordpress_version from top of file for version, currently 4.8
+    - name: require wordpress_version
+      fail:
+        msg: "Require 'wordpress_version', download one from https://wordpress.org/download/release-archive/"
+      when: wordpress_version is undefined
+    - name: check if wordpress installed
+      stat:
+        path: /var/www/book.example.com/wp-settings.php
+        follow: yes
+      #~ ignore_errors: true
+      register: wp_install
+    - name: copy in wordpress to /tmp
+      copy:
+        src: "files/wordpress-{{wordpress_version}}.tar.gz"
+        dest: /tmp/wordpress.tgz
+      when: not (wp_install.stat.isreg is defined and wp_install.stat.isreg)
+    - name: extract wordpress
+      unarchive:
+        src: /tmp/wordpress.tgz
+        dest: /tmp
+        copy: no
+      when: not (wp_install.stat.isreg is defined and wp_install.stat.isreg)
+    - name: create html_root
+      file:
+        dest: /var/www/book.example.com
+        state: directory
+        group: www-data
+        owner: www-data
+        mode: u=rwX,g=rX,o=rX
+      when: not (wp_install.stat.isreg is defined and wp_install.stat.isreg)
+    - name: Copy Wordpress (copy module sucks)
+      command: cp -a /tmp/wordpress/. /var/www/book.example.com/
+      when: not (wp_install.stat.isreg is defined and wp_install.stat.isreg)
+
+    # wordpress mysql setup
+    - name: create wordpress db
+      mysql_db: name=wordpress state=present
+    - name: wordpress db user
+      mysql_user: name=wordpress host=localhost password=bananasfoster priv=wordpress.*:ALL
+
+    # Wordress config
+    - name: create wp-config
+      template:
+        src: templates/wordpress/wp-config.php
+        dest: /var/www/book.example.com/wp-config.php
+
+    # Add wordpress db backup
+    - name: check db contents
+      command: mysql -u root wordpress -e "SELECT ID FROM wordpress.wp_users LIMIT 1;"
+      register: db_exists
+      ignore_errors: true
+      changed_when: false
+    - name: copy in wordpress db
+      copy:
+        src: files/wp-database.sql
+        dest: /tmp/wp-database.sql
+      when: db_exists.rc > 0
+    - name: import wordpress db
+      mysql_db: target=/tmp/wp-database.sql state=import name=wordpress
+      when: db_exists.rc > 0
+
+    # cleanup
+    - name: remove wordpress.tgz
+      file: state=absent path=/tmp/wordpress.tgz
+    - name: remove wordpress folder
+      file: state=absent path=/tmp/wordpress/
+    - name: remove wordpress db config
+      file: state=absent path=/tmp/wp-database.sql
+
+
+
+      
+  handlers:
+    - name: restart nginx
+      service: name=nginx state=restarted
+...

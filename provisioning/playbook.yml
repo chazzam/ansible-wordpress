@@ -1,0 +1,18 @@
+---
+- hosts: all
+  become: true
+  force_handlers: true
+  roles:
+    - role: mheap.wordpress
+      database_name: chazz
+      database_user: chazz
+      database_password: bananasfoster18374
+      wp_domain: book.example.com
+      wp_sitename: Books
+      initial_post_title: Hey There
+      initial_post_content: >
+        This is an example post.
+        Change me to say something interesting.
+
+
+...
